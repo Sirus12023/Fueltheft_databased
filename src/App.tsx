@@ -13,6 +13,7 @@ function App() {
   const [readings, setReadings] = useState<SensorReading[]>([]);
   const [summary, setSummary] = useState<SensorSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedSensorIds, setSelectedSensorIds] = useState<string[]>([]);
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
@@ -40,14 +41,48 @@ function App() {
       return;
     }
 
+    setError(null);
+    setLoading(true);
+
     // Load data from Vercel Blob Storage
     const sensorReadingsUrl = process.env.REACT_APP_SENSOR_READINGS_URL || 'https://65c5ztl9veaifav1.public.blob.vercel-storage.com/sensor-readings.json';
     const summaryUrl = process.env.REACT_APP_SUMMARY_URL || 'https://65c5ztl9veaifav1.public.blob.vercel-storage.com/summary.json';
     
+    console.log('Fetching data from:', { sensorReadingsUrl, summaryUrl });
+    
     Promise.all([
-      fetch(sensorReadingsUrl).then(res => res.json()),
-      fetch(summaryUrl).then(res => res.json()),
+      fetch(sensorReadingsUrl)
+        .then(res => {
+          if (!res.ok) {
+            throw new Error(`Failed to fetch sensor readings: ${res.status} ${res.statusText}`);
+          }
+          return res.json();
+        })
+        .catch(err => {
+          console.error('Error fetching sensor-readings.json:', err);
+          throw new Error(`Failed to load sensor readings: ${err.message}`);
+        }),
+      fetch(summaryUrl)
+        .then(res => {
+          if (!res.ok) {
+            throw new Error(`Failed to fetch summary: ${res.status} ${res.statusText}`);
+          }
+          return res.json();
+        })
+        .catch(err => {
+          console.error('Error fetching summary.json:', err);
+          throw new Error(`Failed to load summary: ${err.message}`);
+        }),
     ]).then(([readingsData, summaryData]) => {
+      console.log('Data loaded successfully:', {
+        readingsCount: Array.isArray(readingsData) ? readingsData.length : 'not an array',
+        summary: summaryData
+      });
+      
+      if (!Array.isArray(readingsData)) {
+        throw new Error('Sensor readings data is not in the expected format (expected array)');
+      }
+      
       setReadings(readingsData);
       setSummary(summaryData);
       
@@ -61,8 +96,10 @@ function App() {
       setSelectedSensorIds(summaryData.uniqueSensorIds);
       
       setLoading(false);
+      setError(null);
     }).catch(err => {
       console.error('Error loading data:', err);
+      setError(err.message || 'Failed to load data. Please check the console for details.');
       setLoading(false);
     });
   }, [authenticated]);
@@ -126,6 +163,15 @@ function App() {
           </button>
         </div>
       </header>
+      
+      {error && (
+        <div className="error-banner">
+          <strong>Error:</strong> {error}
+          <button onClick={() => window.location.reload()} className="retry-button">
+            Retry
+          </button>
+        </div>
+      )}
       
       <div className="app-content">
         <FilterPanel
