@@ -13,6 +13,7 @@ function App() {
   const [readings, setReadings] = useState<SensorReading[]>([]);
   const [summary, setSummary] = useState<SensorSummary | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [selectedSensorIds, setSelectedSensorIds] = useState<string[]>([]);
   const [startDate, setStartDate] = useState<Date | null>(null);
@@ -43,6 +44,7 @@ function App() {
 
     setError(null);
     setLoading(true);
+    setLoadingProgress('Loading summary...');
 
     // Load data from Vercel Blob Storage
     const sensorReadingsUrl = process.env.REACT_APP_SENSOR_READINGS_URL || 'https://65c5ztl9veaifav1.public.blob.vercel-storage.com/sensor-readings.json';
@@ -50,58 +52,124 @@ function App() {
     
     console.log('Fetching data from:', { sensorReadingsUrl, summaryUrl });
     
-    Promise.all([
-      fetch(sensorReadingsUrl)
-        .then(res => {
-          if (!res.ok) {
-            throw new Error(`Failed to fetch sensor readings: ${res.status} ${res.statusText}`);
-          }
-          return res.json();
-        })
-        .catch(err => {
-          console.error('Error fetching sensor-readings.json:', err);
-          throw new Error(`Failed to load sensor readings: ${err.message}`);
-        }),
-      fetch(summaryUrl)
-        .then(res => {
-          if (!res.ok) {
-            throw new Error(`Failed to fetch summary: ${res.status} ${res.statusText}`);
-          }
-          return res.json();
-        })
-        .catch(err => {
-          console.error('Error fetching summary.json:', err);
-          throw new Error(`Failed to load summary: ${err.message}`);
-        }),
-    ]).then(([readingsData, summaryData]) => {
-      console.log('Data loaded successfully:', {
-        readingsCount: Array.isArray(readingsData) ? readingsData.length : 'not an array',
-        summary: summaryData
+    // First load summary (small file)
+    fetch(summaryUrl)
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch summary: ${res.status} ${res.statusText}`);
+        }
+        return res.json();
+      })
+      .then(summaryData => {
+        console.log('Summary loaded:', summaryData);
+        setSummary(summaryData);
+        
+        // Set default date range to show ALL available data
+        const minDate = new Date(summaryData.dateRange.min);
+        const maxDate = new Date(summaryData.dateRange.max);
+        setStartDate(minDate);
+        setEndDate(maxDate);
+        
+        // Select all sensors by default
+        setSelectedSensorIds(summaryData.uniqueSensorIds);
+        
+        // Now load sensor readings with streaming/chunked approach
+        setLoadingProgress('Loading sensor readings (this may take a moment for large datasets)...');
+        
+        return fetch(sensorReadingsUrl);
+      })
+      .then(res => {
+        if (!res.ok) {
+          throw new Error(`Failed to fetch sensor readings: ${res.status} ${res.statusText}`);
+        }
+        
+        // Check if response body is readable
+        if (!res.body) {
+          throw new Error('Response body is not readable');
+        }
+        
+        // Use streaming reader to process data in chunks
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let chunkCount = 0;
+        
+        const processStream = (): Promise<void> => {
+          return reader.read().then(({ done, value }) => {
+            if (done) {
+              // Parse remaining buffer
+              if (buffer.trim()) {
+                try {
+                  const finalData = JSON.parse(buffer);
+                  if (Array.isArray(finalData)) {
+                    console.log(`Loaded ${finalData.length} readings in ${chunkCount} chunks`);
+                    setReadings(finalData);
+                    setLoading(false);
+                    setLoadingProgress('');
+                    setError(null);
+                  } else {
+                    throw new Error('Data is not an array');
+                  }
+                } catch (err) {
+                  console.error('Error parsing final chunk:', err);
+                  throw new Error(`Failed to parse JSON: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                }
+              } else {
+                throw new Error('No data received');
+              }
+              return;
+            }
+            
+            chunkCount++;
+            buffer += decoder.decode(value, { stream: true });
+            
+            // Update progress every 10 chunks
+            if (chunkCount % 10 === 0) {
+              setLoadingProgress(`Loading... (processed ${chunkCount} chunks)`);
+            }
+            
+            return processStream();
+          });
+        };
+        
+        return processStream();
+      })
+      .catch(err => {
+        console.error('Error loading data:', err);
+        
+        // Fallback: try loading as regular JSON if streaming fails
+        if (err.message.includes('stream') || err.message.includes('chunk')) {
+          console.log('Streaming failed, trying regular fetch...');
+          setLoadingProgress('Trying alternative loading method...');
+          
+          return fetch(sensorReadingsUrl)
+            .then(res => {
+              if (!res.ok) {
+                throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
+              }
+              return res.json();
+            })
+            .then(readingsData => {
+              if (!Array.isArray(readingsData)) {
+                throw new Error('Sensor readings data is not in the expected format (expected array)');
+              }
+              
+              console.log(`Loaded ${readingsData.length} readings (fallback method)`);
+              setReadings(readingsData);
+              setLoading(false);
+              setLoadingProgress('');
+              setError(null);
+            });
+        } else {
+          throw err;
+        }
+      })
+      .catch(err => {
+        console.error('Error loading data:', err);
+        setError(err.message || 'Failed to load data. Please check the console for details.');
+        setLoading(false);
+        setLoadingProgress('');
       });
-      
-      if (!Array.isArray(readingsData)) {
-        throw new Error('Sensor readings data is not in the expected format (expected array)');
-      }
-      
-      setReadings(readingsData);
-      setSummary(summaryData);
-      
-      // Set default date range to show ALL available data
-      const minDate = new Date(summaryData.dateRange.min);
-      const maxDate = new Date(summaryData.dateRange.max);
-      setStartDate(minDate);
-      setEndDate(maxDate);
-      
-      // Select all sensors by default
-      setSelectedSensorIds(summaryData.uniqueSensorIds);
-      
-      setLoading(false);
-      setError(null);
-    }).catch(err => {
-      console.error('Error loading data:', err);
-      setError(err.message || 'Failed to load data. Please check the console for details.');
-      setLoading(false);
-    });
   }, [authenticated]);
 
   // Filter and parse readings
@@ -145,7 +213,10 @@ function App() {
   if (loading) {
     return (
       <div className="app-loading">
-        <div className="loading-spinner">Loading sensor data...</div>
+        <div className="loading-spinner">
+          <div>Loading sensor data...</div>
+          {loadingProgress && <div style={{ marginTop: '1rem', fontSize: '0.9rem', opacity: 0.8 }}>{loadingProgress}</div>}
+        </div>
       </div>
     );
   }
