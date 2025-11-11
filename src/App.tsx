@@ -73,96 +73,61 @@ function App() {
         // Select all sensors by default
         setSelectedSensorIds(summaryData.uniqueSensorIds);
         
-        // Now load sensor readings with streaming/chunked approach
+        // Now load sensor readings - use regular fetch (browser handles large files)
         setLoadingProgress('Loading sensor readings (this may take a moment for large datasets)...');
         
-        return fetch(sensorReadingsUrl);
-      })
-      .then(res => {
-        if (!res.ok) {
-          throw new Error(`Failed to fetch sensor readings: ${res.status} ${res.statusText}`);
-        }
+        // Add timeout to prevent hanging
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
         
-        // Check if response body is readable
-        if (!res.body) {
-          throw new Error('Response body is not readable');
-        }
-        
-        // Use streaming reader to process data in chunks
-        const reader = res.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let chunkCount = 0;
-        
-        const processStream = (): Promise<void> => {
-          return reader.read().then(({ done, value }) => {
-            if (done) {
-              // Parse remaining buffer
-              if (buffer.trim()) {
-                try {
-                  const finalData = JSON.parse(buffer);
-                  if (Array.isArray(finalData)) {
-                    console.log(`Loaded ${finalData.length} readings in ${chunkCount} chunks`);
-                    setReadings(finalData);
-                    setLoading(false);
-                    setLoadingProgress('');
-                    setError(null);
-                  } else {
-                    throw new Error('Data is not an array');
-                  }
-                } catch (err) {
-                  console.error('Error parsing final chunk:', err);
-                  throw new Error(`Failed to parse JSON: ${err instanceof Error ? err.message : 'Unknown error'}`);
-                }
-              } else {
-                throw new Error('No data received');
-              }
-              return;
+        return fetch(sensorReadingsUrl, { 
+          signal: controller.signal,
+          headers: {
+            'Accept': 'application/json',
+          }
+        })
+          .then(res => {
+            clearTimeout(timeoutId);
+            if (!res.ok) {
+              throw new Error(`Failed to fetch sensor readings: ${res.status} ${res.statusText}`);
             }
             
-            chunkCount++;
-            buffer += decoder.decode(value, { stream: true });
-            
-            // Update progress every 10 chunks
-            if (chunkCount % 10 === 0) {
-              setLoadingProgress(`Loading... (processed ${chunkCount} chunks)`);
+            // Check content type
+            const contentType = res.headers.get('content-type');
+            if (contentType && !contentType.includes('application/json')) {
+              console.warn('Unexpected content type:', contentType);
             }
             
-            return processStream();
+            setLoadingProgress('Parsing JSON data...');
+            
+            // Use response.json() which handles streaming internally
+            return res.json();
+          })
+          .then(readingsData => {
+            if (!Array.isArray(readingsData)) {
+              throw new Error('Sensor readings data is not in the expected format (expected array)');
+            }
+            
+            console.log(`Successfully loaded ${readingsData.length} readings`);
+            setReadings(readingsData);
+            setLoading(false);
+            setLoadingProgress('');
+            setError(null);
+          })
+          .catch(err => {
+            clearTimeout(timeoutId);
+            console.error('Error loading sensor readings:', err);
+            
+            if (err.name === 'AbortError') {
+              throw new Error('Request timed out. The file might be too large. Please try again or contact support.');
+            }
+            
+            if (err instanceof SyntaxError) {
+              throw new Error(`JSON parsing error: ${err.message}. The data file might be corrupted or invalid.`);
+            }
+            
+            throw new Error(`Failed to load sensor readings: ${err.message || 'Unknown error'}`);
           });
-        };
-        
-        return processStream();
-      })
-      .catch(err => {
-        console.error('Error loading data:', err);
-        
-        // Fallback: try loading as regular JSON if streaming fails
-        if (err.message.includes('stream') || err.message.includes('chunk')) {
-          console.log('Streaming failed, trying regular fetch...');
-          setLoadingProgress('Trying alternative loading method...');
-          
-          return fetch(sensorReadingsUrl)
-            .then(res => {
-              if (!res.ok) {
-                throw new Error(`Failed to fetch: ${res.status} ${res.statusText}`);
-              }
-              return res.json();
-            })
-            .then(readingsData => {
-              if (!Array.isArray(readingsData)) {
-                throw new Error('Sensor readings data is not in the expected format (expected array)');
-              }
-              
-              console.log(`Loaded ${readingsData.length} readings (fallback method)`);
-              setReadings(readingsData);
-              setLoading(false);
-              setLoadingProgress('');
-              setError(null);
-            });
-        } else {
-          throw err;
-        }
       })
       .catch(err => {
         console.error('Error loading data:', err);
