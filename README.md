@@ -17,24 +17,39 @@ A React application for visualizing fuel sensor readings on an interactive map.
 npm install
 ```
 
-2. Set up environment variables (optional):
-Create a `.env` file in the root directory:
-```
-REACT_APP_AUTH_USERNAME=your_username
-REACT_APP_AUTH_PASSWORD=your_password
-REACT_APP_SENSOR_READINGS_URL=https://65c5ztl9veaifav1.public.blob.vercel-storage.com/sensor-readings.json
-REACT_APP_SUMMARY_URL=https://65c5ztl9veaifav1.public.blob.vercel-storage.com/summary.json
-```
+2. Set up environment variables for local development:
+   
+   **For Local Development (using local files):**
+   
+   A `.env.local` file has been created that uses local files from the `public/` directory:
+   ```
+   REACT_APP_SENSOR_READINGS_URL=/sensor-readings.json
+   REACT_APP_SUMMARY_URL=/summary.json
+   ```
+   
+   **For Production/Deployment (using Vercel Blob Storage):**
+   
+   Create a `.env` file (or set in Vercel) with:
+   ```
+   REACT_APP_SENSOR_READINGS_URL=https://65c5ztl9veaifav1.public.blob.vercel-storage.com/sensor-readings.json
+   REACT_APP_SUMMARY_URL=https://65c5ztl9veaifav1.public.blob.vercel-storage.com/summary.json
+   ```
 
-Default credentials (if no .env file):
-- Username: `admin@fueltheft.com`
-- Password: `fueltheft123`
+   **Authentication (optional):**
+   ```
+   REACT_APP_AUTH_USERNAME=your_username
+   REACT_APP_AUTH_PASSWORD=your_password
+   ```
 
-Default data URLs:
-- Sensor readings: `https://65c5ztl9veaifav1.public.blob.vercel-storage.com/sensor-readings.json` (Vercel Blob Storage)
-- Summary: `https://65c5ztl9veaifav1.public.blob.vercel-storage.com/summary.json` (Vercel Blob Storage)
+   Default credentials (if not set):
+   - Username: `admin@fueltheft.com`
+   - Password: `fueltheft123`
 
-3. **Note**: Both data files are now hosted on Vercel Blob Storage and fetched from there. You no longer need to keep these files in the `public/` directory for deployment.
+3. Ensure data files are in `public/` directory for local development:
+   - `sensor-readings.json` (should already be there)
+   - `summary.json` (should already be there)
+   
+   **Note**: The `.env.local` file is configured to use local files. For deployment, the app will use Vercel Blob Storage URLs by default (unless overridden).
 
 4. Start the development server:
 ```bash
