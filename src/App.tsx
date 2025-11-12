@@ -47,8 +47,12 @@ function App() {
     setLoadingProgress('Loading summary...');
 
     // Load data from Vercel Blob Storage
-    const sensorReadingsUrl = process.env.REACT_APP_SENSOR_READINGS_URL || 'https://65c5ztl9veaifav1.public.blob.vercel-storage.com/sensor-readings.json';
-    const summaryUrl = process.env.REACT_APP_SUMMARY_URL || 'https://65c5ztl9veaifav1.public.blob.vercel-storage.com/summary.json';
+    // Use proxy API routes in production to avoid CORS issues, or direct URLs if provided
+    const useProxy = process.env.NODE_ENV === 'production' || process.env.REACT_APP_USE_PROXY === 'true';
+    const sensorReadingsUrl = process.env.REACT_APP_SENSOR_READINGS_URL || 
+      (useProxy ? '/api/proxy-sensor-readings' : 'https://65c5ztl9veaifav1.public.blob.vercel-storage.com/sensor-readings.json');
+    const summaryUrl = process.env.REACT_APP_SUMMARY_URL || 
+      (useProxy ? '/api/proxy-summary' : 'https://65c5ztl9veaifav1.public.blob.vercel-storage.com/summary.json');
     
     console.log('Fetching data from:', { sensorReadingsUrl, summaryUrl });
     
