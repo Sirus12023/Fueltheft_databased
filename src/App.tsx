@@ -84,9 +84,11 @@ function App() {
           signal: controller.signal,
           headers: {
             'Accept': 'application/json',
-          }
+            'Content-Type': 'application/json',
+          },
+          mode: 'cors', // Explicitly enable CORS
         })
-          .then(res => {
+          .then(async res => {
             clearTimeout(timeoutId);
             if (!res.ok) {
               throw new Error(`Failed to fetch sensor readings: ${res.status} ${res.statusText}`);
@@ -100,8 +102,32 @@ function App() {
             
             setLoadingProgress('Parsing JSON data...');
             
-            // Use response.json() which handles streaming internally
-            return res.json();
+            // Get the text first to check for issues
+            const text = await res.text();
+            console.log('Response length:', text.length, 'First 500 chars:', text.substring(0, 500));
+            
+            // Check for common corruption patterns
+            if (text.includes(',git')) {
+              console.warn('Found ",git" in response, cleaning...');
+              const cleaned = text.replace(/,git\s*\n/g, ',\n');
+              return JSON.parse(cleaned);
+            }
+            
+            // Try parsing the JSON
+            try {
+              return JSON.parse(text);
+            } catch (parseError) {
+              console.error('JSON parse error at position:', parseError instanceof SyntaxError ? (parseError as SyntaxError).message : parseError);
+              // Log the problematic area
+              const errorPos = parseError instanceof SyntaxError && (parseError as any).message?.match(/position (\d+)/);
+              if (errorPos) {
+                const pos = parseInt(errorPos[1]);
+                const start = Math.max(0, pos - 50);
+                const end = Math.min(text.length, pos + 50);
+                console.error('Problematic area:', text.substring(start, end));
+              }
+              throw parseError;
+            }
           })
           .then(readingsData => {
             if (!Array.isArray(readingsData)) {
